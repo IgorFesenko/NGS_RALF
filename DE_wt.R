@@ -1,0 +1,91 @@
+library(edgeR)  # загрузка библиотеки
+
+rm(list=ls())
+
+# загружаем данные которые сохранили в прошлый раз
+counts <-  readRDS('counts.Rdata')
+head(counts)
+
+################# DE ANALYSIS ##############
+
+#выбираем данные для дикого типа
+fc_wt = counts[, c("VB_1_S1","VB_3_S3", "VB_5_S5","VB_7_S7", "VB_9_S9","VB_11_S11")]
+head(fc_wt)
+
+saveRDS(fc_wt,'fc_wt.Rdata')
+
+# genes without expression
+table(apply(fc_wt,1,mean) == 0)
+
+# genes having coverage above 10 reads
+table(apply(fc_wt,1,mean) >= 5)
+
+#задаем метаданные для образцов
+meta <-  data.frame(infection=c("mock","fusarium", "mock", "fusarium","mock", "fusarium"))
+rownames(meta) = colnames(fc_wt)
+table(meta)
+meta
+
+## Загружаем данные в edgeR и нормализуем
+# создаем объект edgeR хранящий каунты
+edger <-  DGEList(counts = fc_wt, group = c(0,1,0,1,0,1))
+
+#фильтруем по покрытию
+keep <- filterByExpr(edger)
+table(keep)
+edger <- edger[keep, , keep.lib.sizes=FALSE]
+
+# нормируем методом TMM
+edger = calcNormFactors(edger,method='TMM')
+edger$samples
+
+cpm = cpm(edger) # посчитаем cpm с учетом TMM нормировки
+write.csv(cpm, file = "cpm_values_wt.csv", row.names = TRUE) #выводим таблицу
+
+#создаем матрицу дизайна
+#мы будем искать отличия между зараженными растениями и контролем (infection),
+design = model.matrix(~ infection, data = meta)
+design
+
+# biological coefficient of variation (BCV)
+# рисуем зависимость биологической вариабельности от средней экспрессии, 
+#немного падает с ростом экпсрессии
+edger <-  estimateDisp(edger,design)
+plotBCV(edger)
+edger$common.dispersion
+
+plotMDS(edger)
+
+# fit GLM model
+glm <-  glmFit(edger,design)
+#plotQLDisp(glm)
+
+# calculating DE genes during infection
+glf <- glmLRT(glm)
+
+topTags(glf)#наиболее меняющиеся гены
+
+#summary statistics
+summary(decideTests(glf))
+
+#Plot log-fold change against log-counts per million, with DE genes highlighted:
+plotMD(glf)
+abline(h=c(-1, 1), col="blue")
+
+# calculate FDR
+glf$table$FDR <- p.adjust(glf$table$PValue, method="BH")
+#распределение p-value
+hist(glf$table$PValue)
+
+#CPM top DE genes
+top <- rownames(topTags(glf, n=20))
+cpm[top,]
+
+#Выводим данные
+write.csv(glf$table, file = "de_test_wt.csv", row.names = TRUE) #выводим таблицу
+
+#Всего меняющихся генов
+sum(glf$table$FDR < 0.05)
+
+#сохраняем результат
+saveRDS(glf,'ge_qv_wt.Rdata')
