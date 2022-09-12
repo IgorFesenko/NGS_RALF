@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- coding: utf-8 -*-
 
-fq_data='/home/admin_moss/NGS_RALF/fq_data/combined'
+fq_data='./fq_data/combined'
 
 
 for i in $(find ./ -type f -name "*.fastq.gz" | while read F; do basename $F | rev | cut -c 22- | rev; done | sort | uniq);
